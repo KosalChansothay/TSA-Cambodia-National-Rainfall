@@ -1,0 +1,1442 @@
+---
+title: "Cambodia National Rainfall"
+subtitle: "Time Series Analysis & Forecasting | Dr. SIM Tepmony"
+institute: "Instittute of Technology of Cambodia | Dept. AMS"
+author: "Group 01 | CHEA Piseth | KHUN Sithanut | <span style='color:#048373;'>KOSAL Chansothay</span> | HENG Sopanha"
+date: "January 2026"
+format:
+  revealjs:
+    theme: [default, custom.scss]
+    slide-number: true
+    chalkboard: true
+    preview-links: auto
+    logo: "AMS.png"
+    footer: "Time Series Analysis | Dr. SIM Tepmony | January 2026"
+    transition: slide
+    background-transition: fade
+    highlight-style: github
+    code-fold: true
+    code-tools: true
+    code-line-numbers: false
+    scrollable: true
+    smaller: false
+    fig-align: center
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+## Course Information {.center}
+
+::: {.columns}
+::: {.column width="50%"}
+### Course Details
+- **Course:** Time Series Analysis
+- **Group:** 01
+- **Instructor:** Dr. SIM Tepmony
+- **Date:** January 2026
+:::
+
+::: {.column width="50%"}
+### Project Overview
+- **Topic:** Cambodia National Rainfall Analysis
+- **Data Source:** Humanitarian Data Exchange (HDX)
+- **Period:** 1981 – 2026
+- **Method:** ARIMA/SARIMA Modeling
+:::
+:::
+
+---
+
+## Table of Contents
+
+::: {.incremental}
+1. **Introduction** – Research motivation and objectives
+2. **Data Loading** – Acquiring rainfall data from HDX
+3. **Data Preprocessing** – Building national monthly series
+4. **Exploratory Data Analysis** – Patterns and statistics
+5. **Stationarity Testing** – ADF test and differencing
+6. **Model Development** – ARIMA/SARIMA fitting
+7. **Model Evaluation** – Performance comparison
+8. **Forecasting** – 24-month national rainfall forecast
+9. **Conclusion** – Key findings and recommendations
+:::
+
+---
+
+## Introduction
+
+### Research Motivation
+
+::: {.columns}
+::: {.column width="60%"}
+- Cambodia's economy is **heavily dependent on agriculture**
+- Rainfall patterns directly impact:
+  - Rice cultivation and crop yields
+  - Water resource management
+  - Flood and drought preparedness
+- Understanding rainfall trends enables **better planning**
+:::
+
+::: {.column width="40%"}
+### Objectives
+::: {.callout-tip}
+1. Build a national monthly rainfall time series
+2. Identify seasonal patterns and trends
+3. Develop accurate forecasting models
+4. Produce 24-month rainfall forecasts
+:::
+:::
+:::
+
+---
+
+## Setup and Libraries
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show setup code"
+
+import warnings
+warnings.filterwarnings("ignore")
+
+# Data manipulation
+import numpy as np
+import pandas as pd
+
+# Visualization
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+# Time series tools
+from statsmodels.tsa.stattools import adfuller
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.stats.diagnostic import acorr_ljungbox
+
+# Metrics
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+np.random.seed(42)
+```
+
+::: {.callout-note}
+**Libraries Used:**
+
+::: {.callout-note}
+**Libraries Used:** pandas, numpy, plotly, statsmodels, scikit-learn
+:::
+
+<p align="center">
+  <img src="https://pandas.pydata.org/static/img/pandas.svg" alt="pandas" width="100"/>
+  <img src="https://numpy.org/images/logo.svg" alt="numpy" width="100"/>
+  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Plotly-logo.png/960px-Plotly-logo.png?20220718173326" alt="plotly" width="120"/>
+  <img src="https://www.statsmodels.org/stable/_images/statsmodels-logo-v2-horizontal.svg" alt="statsmodels" width="160"/>
+  <img src="https://scikit-learn.org/stable/_static/scikit-learn-logo-small.png" alt="scikit-learn" width="120"/>
+</p>
+
+:::
+
+---
+
+## Data Loading
+
+### Humanitarian Data Exchange (HDX) Dataset
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show data loading code"
+
+url = "https://data.humdata.org/dataset/8fa90d2b-a88e-414d-84a1-50d6bc773542/resource/67c4f3d6-f600-4699-9a67-0de20d6a1b0b/download/khm-rainfall-subnat-full.csv"
+
+print("Loading Cambodia rainfall dataset...")
+df_raw = pd.read_csv(url)
+df_raw["date"] = pd.to_datetime(df_raw["date"])
+
+print(f"✓ Dataset loaded successfully!")
+print(f"  Shape: {df_raw.shape[0]:,} rows × {df_raw.shape[1]} columns")
+print(f"  Date range: {df_raw['date'].min().strftime('%Y-%m-%d')} to {df_raw['date'].max().strftime('%Y-%m-%d')}")
+```
+
+::: {.columns}
+::: {.column width="50%"}
+### Data Source
+- **Provider:** OCHA HDX Platform
+- **Coverage:** All Cambodian provinces
+- **Frequency:** Dekadal (10-day periods)
+:::
+
+::: {.column width="50%"}
+### Key Variables
+- `date` – Observation date
+- `rfh` – Rainfall (mm)
+- `adm_level` – Administrative level
+- `pcode` – Province code
+:::
+:::
+
+---
+
+## Raw Data Overview
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show data preview"
+
+# Display first few rows
+print("Last 5 rows of raw data:")
+df_raw.tail(5)
+```
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show column info"
+
+print("\nColumn Information:")
+print(df_raw.dtypes)
+print(f"\nUnique administrative levels: {df_raw['adm_level'].unique()}")
+```
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show missing data"
+df_raw.isna().sum()
+```
+
+---
+
+## Data Preprocessing
+
+### Building National Monthly Rainfall Series
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show preprocessing code"
+
+# Filter to provincial level (adm_level == 1)
+df_province = df_raw[df_raw["adm_level"] == 1].copy()
+
+# Keep only date and rainfall
+df_nat = df_province[["date", "rfh"]].copy()
+df_nat.columns = ["date", "rainfall"]
+
+# Handle missing values
+missing_before = df_nat["rainfall"].isna().sum()
+df_nat["rainfall"] = df_nat["rainfall"].ffill().bfill()
+missing_after = df_nat["rainfall"].isna().sum()
+
+print(f"Missing values: {missing_before} → {missing_after} (after imputation)")
+
+# Create year-month period
+df_nat["year_month"] = df_nat["date"].dt.to_period("M")
+
+# Aggregate to national monthly totals
+df_nat_monthly = (
+    df_nat.groupby("year_month")
+    .agg(rainfall=("rainfall", "sum"))
+    .reset_index()
+)
+df_nat_monthly["date"] = df_nat_monthly["year_month"].dt.to_timestamp()
+df_nat_monthly = df_nat_monthly[["date", "rainfall"]].copy()
+
+print(f"\n✓ National monthly series created")
+print(f"  Total months: {len(df_nat_monthly)}")
+print(f"  Range: {df_nat_monthly['date'].min().strftime('%Y-%m')} to {df_nat_monthly['date'].max().strftime('%Y-%m')}")
+```
+
+$$
+\tilde{x}_t =
+\begin{cases}
+x_t, & \text{if } x_t \text{ is observed}, \\[1pt]
+x_{t^-}, & \text{if } x_t \text{ is missing and a previous value exists (forward fill)}, \\[1pt]
+x_{t^+}, & \text{if } x_t \text{ is missing and only a later value exists (backward fill)}.
+\end{cases}
+$$
+
+---
+
+## Preprocessing Summary
+
+::: {.columns}
+::: {.column width="50%"}
+### Steps Performed
+1. **Filtered** provincial-level records (`adm_level == 1`)
+2. **Imputed** missing rainfall values (forward/backward fill)
+3. **Aggregated** daily/dekadal data to monthly totals
+4. **Summed** across all provinces for national total
+:::
+
+::: {.column width="50%"}
+### Result
+::: {.callout-tip}
+**National Monthly Rainfall Series**
+
+- **Observations:** ~540 months
+- **Period:** 1981 – 2026
+- **Frequency:** Monthly (MS)
+- **Unit:** Total rainfall (mm)
+:::
+:::
+:::
+
+```{python}
+#| echo: false
+
+# Create time series object
+ts_nat = df_nat_monthly.set_index("date")["rainfall"].asfreq("MS")
+ts = ts_nat
+```
+
+---
+
+## Exploratory Data Analysis
+
+### National Monthly Rainfall Time Series
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show visualization code"
+
+fig = px.line(
+    df_nat_monthly, 
+    x="date", 
+    y="rainfall",
+    title="Cambodia National Monthly Rainfall (1981–2026)",
+    labels={"date": "Date", "rainfall": "Rainfall (mm)"}
+)
+fig.update_traces(line_color="#3498db", line_width=1.5)
+fig.update_layout(
+    hovermode="x unified",
+    xaxis_title="Date",
+    yaxis_title="Rainfall (mm)",
+    template="plotly_white",
+    height=450
+)
+fig.show()
+```
+
+::: {.callout-note}
+**Observation:** Clear annual cyclical pattern with peaks during monsoon season (May–October) and low values during dry season (November–April).
+:::
+
+---
+
+## Descriptive Statistics
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show statistics code"
+
+stats = {
+    "Count": len(ts),
+    "Mean (mm)": ts.mean(),
+    "Median (mm)": ts.median(),
+    "Std Dev": ts.std(),
+    "Min (mm)": ts.min(),
+    "Max (mm)": ts.max(),
+    "Range (mm)": ts.max() - ts.min(),
+    "Q1 (25%)": ts.quantile(0.25),
+    "Q3 (75%)": ts.quantile(0.75),
+    "IQR": ts.quantile(0.75) - ts.quantile(0.25),
+    "CV (%)": ts.std() / ts.mean() * 100,
+    "Skewness": ts.skew(),
+    "Kurtosis": ts.kurtosis(),
+}
+
+stats_df = pd.DataFrame(list(stats.items()), columns=["Statistic", "Value"])
+stats_df["Value"] = stats_df["Value"].round(2)
+stats_df
+```
+
+::: {.callout-tip}
+**High CV (>50%)** indicates strong wet/dry season variability – typical for tropical monsoon climates.
+:::
+
+---
+
+## Monthly Rainfall Distribution
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show distribution plot code"
+
+# Add month for grouping
+df_nat_monthly["month"] = df_nat_monthly["date"].dt.month
+df_nat_monthly["month_name"] = df_nat_monthly["date"].dt.strftime("%b")
+
+# Monthly boxplot
+fig = px.box(
+    df_nat_monthly, 
+    x="month", 
+    y="rainfall",
+    title="Monthly Rainfall Distribution by Month",
+    labels={"month": "Month", "rainfall": "Rainfall (mm)"}
+)
+fig.update_layout(
+    xaxis=dict(
+        tickmode="array",
+        tickvals=list(range(1, 13)),
+        ticktext=["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    ),
+    template="plotly_white",
+    height=450
+)
+fig.show()
+```
+
+::: {.callout-note}
+**Peak rainfall months:** May–October (monsoon season) | **Dry months:** November–April
+:::
+
+---
+
+## Seasonal Decomposition
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show decomposition code"
+
+# Perform seasonal decomposition
+decomp = seasonal_decompose(ts, model="additive", period=12)
+
+# Create subplots using plotly
+fig = make_subplots(
+    rows=4, cols=1,
+    subplot_titles=("Observed", "Trend", "Seasonal", "Residual"),
+    vertical_spacing=0.08
+)
+
+# Observed
+fig.add_trace(go.Scatter(x=ts.index, y=ts.values, mode="lines", 
+                         name="Observed", line=dict(color="#3498db")), row=1, col=1)
+
+# Trend
+fig.add_trace(go.Scatter(x=decomp.trend.index, y=decomp.trend.values, mode="lines",
+                         name="Trend", line=dict(color="#e74c3c")), row=2, col=1)
+
+# Seasonal
+fig.add_trace(go.Scatter(x=decomp.seasonal.index, y=decomp.seasonal.values, mode="lines",
+                         name="Seasonal", line=dict(color="#2ecc71")), row=3, col=1)
+
+# Residual
+fig.add_trace(go.Scatter(x=decomp.resid.index, y=decomp.resid.values, mode="lines",
+                         name="Residual", line=dict(color="#9b59b6")), row=4, col=1)
+
+fig.update_layout(height=700, showlegend=False, template="plotly_white",
+                  title_text="Additive Seasonal Decomposition (Period = 12 months)")
+fig.show()
+```
+
+---
+
+## Decomposition Interpretation
+
+::: {.columns}
+::: {.column width="50%"}
+### Components Identified
+- **Trend:** Slight long-term variations, no strong upward/downward trend
+- **Seasonal:** Strong 12-month cyclical pattern (monsoon cycle)
+- **Residual:** Random fluctuations around zero
+:::
+
+::: {.column width="50%"}
+### Key Insights
+::: {.callout-tip}
+1. **Seasonality dominates** the series
+2. Monsoon cycle is **consistent** across decades
+3. **Additive model** is appropriate (seasonal amplitude relatively constant)
+4. Need to account for seasonality in forecasting
+:::
+:::
+:::
+
+---
+
+## Stationarity Testing
+
+### Augmented Dickey-Fuller (ADF) Test
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show ADF test code"
+
+def adf_test(x, name="Series"):
+    result = adfuller(x.dropna(), autolag="BIC")
+    adf_results = {
+        "Test": name,
+        "ADF Statistic": round(result[0], 4),
+        "p-value": result[1],
+        "Critical 1%": round(result[4]["1%"], 4),
+        "Critical 5%": round(result[4]["5%"], 4),
+        "Critical 10%": round(result[4]["10%"], 4),
+        "Stationary": "Yes" if result[1] < 0.05 else "No"
+    }
+    return adf_results
+
+# Test original series
+adf_original = adf_test(ts, "Original Series")
+
+# Seasonal differencing (lag 12)
+ts_diff = ts.diff(12).dropna()
+adf_diff = adf_test(ts_diff, "Seasonally Differenced (D=1)")
+
+# Display results
+adf_df = pd.DataFrame([adf_original, adf_diff])
+adf_df
+```
+
+::: {.callout-important}
+**Result:** The original series is stationary in the unit-root sense (ADF p < 0.05). After applying seasonal differencing at lag 12, the series shows much weaker autocorrelation and is suitable for SARIMA modeling.
+:::
+
+---
+
+## ACF and PACF Analysis
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show ACF/PACF code"
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from statsmodels.tsa.stattools import acf, pacf
+import numpy as np
+
+# Calculate seasonal difference
+ts_seasonal_diff = ts.diff(12)
+
+# Calculate ACF and PACF values
+acf_original = acf(ts.dropna(), nlags=40)
+pacf_original = pacf(ts.dropna(), nlags=40)
+acf_seasonal = acf(ts_seasonal_diff.dropna(), nlags=40)
+pacf_seasonal = pacf(ts_seasonal_diff.dropna(), nlags=40)
+
+# Calculate confidence intervals (95%)
+n_original = len(ts.dropna())
+n_seasonal = len(ts_seasonal_diff.dropna())
+ci_original = 1.96 / np.sqrt(n_original)
+ci_seasonal = 1.96 / np.sqrt(n_seasonal)
+
+# Create subplots
+fig = make_subplots(
+    rows=2, cols=2,
+    subplot_titles=(
+        "ACF - Original Series",
+        "PACF - Original Series",
+        "ACF - Seasonally Differenced (lag=12)",
+        "PACF - Seasonally Differenced (lag=12)"
+    )
+)
+
+# Helper function to add ACF/PACF plot
+def add_correlogram(fig, values, ci, row, col):
+    lags = np.arange(len(values))
+    
+    # Add vertical lines
+    for i, val in enumerate(values):
+        fig.add_trace(
+            go.Scatter(
+                x=[i, i],
+                y=[0, val],
+                mode='lines',
+                line=dict(color='steelblue', width=2),
+                showlegend=False,
+                hovertemplate=f'Lag: {i}<br>Value: {val:.3f}<extra></extra>'
+            ),
+            row=row, col=col
+        )
+    
+    # Add confidence interval bands
+    fig.add_trace(
+        go.Scatter(
+            x=lags,
+            y=[ci] * len(lags),
+            mode='lines',
+            line=dict(color='rgba(255, 0, 0, 0.3)', dash='dash'),
+            showlegend=False,
+            hoverinfo='skip'
+        ),
+        row=row, col=col
+    )
+    
+    fig.add_trace(
+        go.Scatter(
+            x=lags,
+            y=[-ci] * len(lags),
+            mode='lines',
+            line=dict(color='rgba(255, 0, 0, 0.3)', dash='dash'),
+            showlegend=False,
+            hoverinfo='skip'
+        ),
+        row=row, col=col
+    )
+    
+    # Add zero line
+    fig.add_trace(
+        go.Scatter(
+            x=lags,
+            y=[0] * len(lags),
+            mode='lines',
+            line=dict(color='black', width=1),
+            showlegend=False,
+            hoverinfo='skip'
+        ),
+        row=row, col=col
+    )
+
+# Add all plots
+add_correlogram(fig, acf_original, ci_original, 1, 1)
+add_correlogram(fig, pacf_original, ci_original, 1, 2)
+add_correlogram(fig, acf_seasonal, ci_seasonal, 2, 1)
+add_correlogram(fig, pacf_seasonal, ci_seasonal, 2, 2)
+
+# Update layout
+fig.update_xaxes(title_text="Lag", row=1, col=1)
+fig.update_xaxes(title_text="Lag", row=1, col=2)
+fig.update_xaxes(title_text="Lag", row=2, col=1)
+fig.update_xaxes(title_text="Lag", row=2, col=2)
+
+fig.update_yaxes(title_text="ACF", row=1, col=1)
+fig.update_yaxes(title_text="PACF", row=1, col=2)
+fig.update_yaxes(title_text="ACF", row=2, col=1)
+fig.update_yaxes(title_text="PACF", row=2, col=2)
+
+fig.update_layout(
+    height=800,
+    width=1200,
+    title_text="ACF and PACF Analysis",
+    showlegend=False
+)
+
+fig.show()
+```
+
+---
+
+## ACF/PACF Interpretation
+
+::: {.columns}
+::: {.column width="50%"}
+### Observations
+- **ACF:** Significant spikes at lags 12, 24 (yearly seasonality)
+- **PACF:** Cuts off after lag 1
+- Clear **seasonal component** at period 12
+:::
+
+::: {.column width="50%"}
+### Model Selection Guidance
+::: {.callout-tip}
+Based on ACF/PACF patterns:
+
+- Use **D = 1** (seasonal differencing)
+- Use **s = 12** (yearly seasonality)
+- Try small orders: **p, q ∈ {0, 1}**
+- Try seasonal orders: **P, Q ∈ {1}**
+:::
+:::
+:::
+
+---
+
+## Train-Test Split
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show split code"
+
+# Reserve last 60 months (5 years) for testing
+test_size = 60
+train = ts.iloc[:-test_size]
+test = ts.iloc[-test_size:]
+
+print(f"Training set: {train.index.min().strftime('%Y-%m')} to {train.index.max().strftime('%Y-%m')} ({len(train)} months)")
+print(f"Test set:     {test.index.min().strftime('%Y-%m')} to {test.index.max().strftime('%Y-%m')} ({len(test)} months)")
+```
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show split visualization"
+
+import plotly.graph_objects as go
+
+# Convert index to datetime if needed (safe guard)
+train.index = train.index.to_timestamp() if hasattr(train.index, "to_timestamp") else train.index
+test.index  = test.index.to_timestamp() if hasattr(test.index, "to_timestamp") else test.index
+
+# Get split date safely
+split_date = test.index[0].to_pydatetime()
+
+fig = go.Figure()
+
+# Training set
+fig.add_trace(
+    go.Scatter(
+        x=train.index,
+        y=train.values,
+        mode="lines",
+        name="Training Set",
+        line=dict(color="#3498db")
+    )
+)
+
+# Test set
+fig.add_trace(
+    go.Scatter(
+        x=test.index,
+        y=test.values,
+        mode="lines",
+        name="Test Set",
+        line=dict(color="#e74c3c")
+    )
+)
+
+# Vertical split line (NO annotation here)
+fig.add_vline(
+    x=split_date,
+    line_dash="dash",
+    line_color="black",
+    line_width=2
+)
+
+# Manual annotation (safe)
+fig.add_annotation(
+    x=split_date,
+    y=1,
+    yref="paper",
+    text="Train / Test Split",
+    showarrow=False,
+    font=dict(size=12, color="black"),
+    xanchor="left",
+    yanchor="bottom"
+)
+
+# Layout
+fig.update_layout(
+    title="Train–Test Split (Last 5 Years as Test)",
+    xaxis_title="Date",
+    yaxis_title="Rainfall (mm)",
+    template="plotly_white",
+    height=400,
+    legend=dict(
+        yanchor="top",
+        y=0.99,
+        xanchor="left",
+        x=0.01
+    )
+)
+
+fig.show()
+```
+
+---
+
+## Model Development
+
+### ARIMA and SARIMA Models
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show model fitting code"
+
+def fit_evaluate(model_name, order, seasonal_order=None):
+    """Fit model and evaluate on test set"""
+    if seasonal_order is None:
+        model = ARIMA(train, order=order)
+    else:
+        model = SARIMAX(train, order=order, seasonal_order=seasonal_order,
+                        enforce_stationarity=False, enforce_invertibility=False)
+    
+    fitted = model.fit()
+    preds = fitted.get_forecast(steps=len(test)).predicted_mean
+    preds.index = test.index
+    
+    rmse = np.sqrt(mean_squared_error(test, preds))
+    mae = mean_absolute_error(test, preds)
+    r2 = r2_score(test, preds)
+    aic = fitted.aic
+    
+    return {
+        "Model": model_name,
+        "Order": str(order),
+        "Seasonal": str(seasonal_order) if seasonal_order else "None",
+        "RMSE": round(rmse, 2),
+        "MAE": round(mae, 2),
+        "R²": round(r2, 3),
+        "AIC": round(aic, 2),
+        "Fitted": fitted,
+        "Predictions": preds
+    }
+
+# Fit multiple models
+results = []
+results.append(fit_evaluate("AR(1)", (1, 0, 0)))
+results.append(fit_evaluate("MA(1)", (0, 0, 1)))
+results.append(fit_evaluate("ARMA(1,1)", (1, 0, 1)))
+results.append(fit_evaluate("ARIMA(1,1,1)", (1, 1, 1)))
+results.append(fit_evaluate("SARIMA(0,0,1)×(1,1,1,12)", (0, 0, 1), (1, 1, 1, 12)))
+results.append(fit_evaluate("SARIMA(1,0,1)×(1,1,1,12)", (1, 0, 1), (1, 1, 1, 12)))
+results.append(fit_evaluate("SARIMA(1,1,1)×(1,1,1,12)", (1, 1, 1), (1, 1, 1, 12)))
+
+print("✓ All models fitted successfully")
+```
+
+::: {.callout-note}
+## Time Series Models: AR to SARIMA
+
+Let $B$ denote the backshift operator, where $B^k Y_t = Y_{t-k}$.
+
+---
+
+### 1. Autoregressive Model — AR(1)
+
+- **Code:** `order = (1, 0, 0)`
+
+$$
+Y_t = c + \phi_1 Y_{t-1} + \varepsilon_t
+$$
+$$
+(1 - \phi_1 B)Y_t = c + \varepsilon_t
+$$
+
+---
+
+### 2. Moving Average Model — MA(1)
+
+- **Code:** `order = (0, 0, 1)`
+
+$$
+Y_t = \mu + \varepsilon_t + \theta_1 \varepsilon_{t-1}
+$$
+$$
+Y_t = \mu + (1 + \theta_1 B)\varepsilon_t
+$$
+
+---
+
+### 3. Autoregressive Moving Average — ARMA(1,1)
+
+- **Code:** `order = (1, 0, 1)`
+
+$$
+Y_t = c + \phi_1 Y_{t-1} + \varepsilon_t + \theta_1 \varepsilon_{t-1}
+$$
+$$
+(1 - \phi_1 B)Y_t = c + (1 + \theta_1 B)\varepsilon_t
+$$
+
+---
+
+### 4. Autoregressive Integrated Moving Average — ARIMA(1,1,1)
+
+- **Code:** `order = (1, 1, 1)`
+
+$$
+(1 - \phi_1 B)(1 - B)Y_t = (1 + \theta_1 B)\varepsilon_t
+$$
+
+where $(1 - B)Y_t = Y_t - Y_{t-1}$.
+
+---
+
+### 5. Seasonal ARIMA — SARIMA(0,0,1) × (1,1,1)$_{12}$
+
+- **Code:**
+  `order = (0, 0, 1)`
+  `seasonal_order = (1, 1, 1, 12)`
+
+$$
+(1 - \Phi_1 B^{12})(1 - B^{12})Y_t = (1 + \theta_1 B)(1 + \Theta_1 B^{12})\varepsilon_t
+$$
+
+---
+
+### 6. Seasonal ARIMA — SARIMA(1,0,1) × (1,1,1)$_{12}$
+
+- **Code:**
+  `order = (1, 0, 1)`
+  `seasonal_order = (1, 1, 1, 12)`
+
+$$
+(1 - \Phi_1 B^{12})(1 - \phi_1 B)(1 - B^{12})Y_t = (1 + \theta_1 B)(1 + \Theta_1 B^{12})\varepsilon_t
+$$
+
+---
+
+### 7. Seasonal ARIMA — SARIMA(1,1,1) × (1,1,1)$_{12}$
+
+- **Code:**
+  `order = (1, 1, 1)`
+  `seasonal_order = (1, 1, 1, 12)`
+
+$$
+(1 - \Phi_1 B^{12})(1 - \phi_1 B)(1 - B^{12})(1 - B)Y_t = (1 + \theta_1 B)(1 + \Theta_1 B^{12})\varepsilon_t
+$$
+
+This model includes both **ordinary differencing** and **seasonal differencing**.
+:::
+
+---
+
+## Model Comparison
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show comparison table"
+
+# Create comparison dataframe
+results_df = pd.DataFrame([{k: v for k, v in r.items() if k not in ["Fitted", "Predictions"]} 
+                           for r in results])
+results_df = results_df.sort_values("RMSE")
+results_df
+```
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show comparison chart"
+
+fig = px.bar(
+    results_df.sort_values("RMSE"),
+    x="Model",
+    y="RMSE",
+    color="RMSE",
+    color_continuous_scale="RdYlGn_r",
+    title="Model Comparison by RMSE (Lower is Better)"
+)
+fig.update_layout(template="plotly_white", height=400)
+fig.show()
+```
+
+---
+
+## Best Model Selection
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show best model"
+
+best = min(results, key=lambda x: x["RMSE"])
+print(f"✓ Best Model: {best['Model']}")
+print(f"  Order: {best['Order']}")
+print(f"  Seasonal Order: {best['Seasonal']}")
+print(f"  RMSE: {best['RMSE']:.2f}")
+print(f"  MAE: {best['MAE']:.2f}")
+print(f"  R²: {best['R²']:.3f}")
+```
+
+::: {.columns}
+::: {.column width="50%"}
+### Why SARIMA?
+- Captures **both** trend and seasonality
+- Seasonal differencing (D=1) handles non-stationarity
+- Period s=12 matches yearly monsoon cycle
+:::
+
+::: {.column width="50%"}
+::: {.callout-tip}
+### Best Model
+**SARIMA(0,0,1)×(1,1,1,12)**
+
+- Lowest RMSE on 5-year test set
+- Good R² score
+- Parsimonious (few parameters)
+:::
+:::
+:::
+
+---
+
+## Forecast vs Actual (Test Set)
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show forecast comparison"
+
+best_pred = best["Predictions"]
+train_recent = train.iloc[-120:]  # Last 10 years of training
+
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(x=train_recent.index, y=train_recent.values, mode="lines",
+                         name="Training Data", line=dict(color="#3498db", width=1.5)))
+
+fig.add_trace(go.Scatter(x=test.index, y=test.values, mode="lines+markers",
+                         name="Actual (Test)", line=dict(color="#2c3e50", width=2),
+                         marker=dict(size=4)))
+
+fig.add_trace(go.Scatter(x=best_pred.index, y=best_pred.values, mode="lines",
+                         name=f"{best['Model']} Forecast", 
+                         line=dict(color="#e74c3c", dash="dash", width=2)))
+
+fig.add_vline(x=test.index[0], line_dash="dot", line_color="gray")
+
+fig.update_layout(
+    title=f"Best Model: {best['Model']} – Forecast vs Actual",
+    xaxis_title="Date",
+    yaxis_title="Rainfall (mm)",
+    template="plotly_white",
+    height=450,
+    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+)
+fig.show()
+```
+
+::: {.callout-note}
+The model captures the seasonal pattern well, though some extreme peaks are underestimated.
+:::
+
+---
+
+## Residual Diagnostics
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show residual analysis"
+
+fitted_model = best["Fitted"]
+resid = fitted_model.resid.dropna()
+
+# Create diagnostic plots
+fig = make_subplots(
+    rows=2, cols=2,
+    subplot_titles=("Residuals Over Time", "Residual Distribution", 
+                    "Residual ACF", "Q-Q Plot (Normal)")
+)
+
+# Residuals over time
+fig.add_trace(go.Scatter(x=resid.index, y=resid.values, mode="lines",
+                         line=dict(color="#3498db")), row=1, col=1)
+fig.add_hline(y=0, line_dash="dash", line_color="red", row=1, col=1)
+
+# Histogram
+fig.add_trace(go.Histogram(x=resid.values, nbinsx=30, 
+                           marker_color="#2ecc71"), row=1, col=2)
+
+# ACF of residuals
+resid_acf = acf(resid, nlags=20)
+fig.add_trace(go.Bar(x=list(range(21)), y=resid_acf, 
+                     marker_color="#e74c3c"), row=2, col=1)
+ci_resid = 1.96 / np.sqrt(len(resid))
+fig.add_hline(y=ci_resid, line_dash="dash", line_color="gray", row=2, col=1)
+fig.add_hline(y=-ci_resid, line_dash="dash", line_color="gray", row=2, col=1)
+
+# Q-Q plot approximation
+from scipy import stats
+theoretical = np.sort(stats.norm.ppf(np.linspace(0.01, 0.99, len(resid))))
+sample = np.sort(resid.values)
+fig.add_trace(go.Scatter(x=theoretical, y=sample, mode="markers",
+                         marker=dict(color="#9b59b6", size=4)), row=2, col=2)
+fig.add_trace(go.Scatter(x=[-3, 3], y=[-3*resid.std(), 3*resid.std()], mode="lines",
+                         line=dict(color="red", dash="dash")), row=2, col=2)
+
+fig.update_layout(height=600, showlegend=False, template="plotly_white",
+                  title_text="")
+fig.show()
+```
+
+---
+
+## Ljung-Box Test
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show Ljung-Box test"
+lb_test = acorr_ljungbox(resid, lags=[12, 24], return_df=True)
+# Add conclusion column
+lb_test["Conclusion"] = lb_test["lb_pvalue"].apply(
+    lambda p: "No autocorrelation ✓" if p > 0.05 else "Autocorrelation detected ✗"
+)
+
+# Format p-values to 4 decimal places
+lb_test["lb_pvalue"] = lb_test["lb_pvalue"].map(lambda p: f"{p:.4f}")
+
+lb_test
+```
+
+::: {.columns}
+::: {.column width="50%"}
+### Interpretation
+- **p-value = 0.0000 (< 0.05)** at lags 12 and 24
+- Residuals show **significant autocorrelation**
+- Model has **not fully captured** the data structure
+- Consider refining model parameters
+:::
+
+::: {.column width="50%"}
+::: {.callout-warning}
+### Diagnostics Summary
+✓ Residuals centered around zero  
+✗ Autocorrelation detected (Ljung-Box)  
+✓ Approximately normal distribution  
+! Model may benefit from refinement
+:::
+:::
+:::
+
+---
+
+## Final Model Refitting
+
+### Refit on Complete Data
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show final model fitting"
+
+# Refit best model on FULL national series
+best_order = (0, 0, 1)
+best_seasonal = (1, 1, 1, 12)
+
+print("Refitting best model on complete dataset...")
+
+final_model = SARIMAX(
+    ts_nat,
+    order=best_order,
+    seasonal_order=best_seasonal,
+    enforce_stationarity=False,
+    enforce_invertibility=False
+)
+final_fitted = final_model.fit()
+
+print(f"\n✓ Final model fitted on {len(ts_nat)} observations")
+print(f"  AIC: {final_fitted.aic:.2f}")
+print(f"  BIC: {final_fitted.bic:.2f}")
+```
+
+::: {.callout-note}
+The final model is refitted on the **complete dataset** (1981–2026) to utilize all available information for forecasting.
+:::
+
+---
+
+## 24-Month Forecast
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show forecast generation"
+
+# Generate 24-month forecast
+forecast_horizon = 24
+forecast_res = final_fitted.get_forecast(steps=forecast_horizon)
+forecast_mean = forecast_res.predicted_mean.clip(lower=0)
+forecast_ci = forecast_res.conf_int().clip(lower=0)
+
+# Create forecast dates
+forecast_dates = pd.date_range(
+    start=ts_nat.index[-1] + pd.DateOffset(months=1),
+    periods=forecast_horizon,
+    freq="MS"
+)
+
+forecast_df = pd.DataFrame({
+    "Date": forecast_dates,
+    "Forecast": forecast_mean.values.round(2),
+    "Lower 95% CI": forecast_ci.iloc[:, 0].values.round(2),
+    "Upper 95% CI": forecast_ci.iloc[:, 1].values.round(2)
+})
+
+print("24-Month National Rainfall Forecast:")
+forecast_df
+```
+
+---
+
+## Forecast Visualization
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show forecast plot"
+
+import plotly.graph_objects as go
+import pandas as pd
+
+# Ensure datetime index (handles PeriodIndex too)
+ts_nat.index = (
+    ts_nat.index.to_timestamp()
+    if hasattr(ts_nat.index, "to_timestamp")
+    else ts_nat.index
+)
+
+forecast_df["Date"] = pd.to_datetime(forecast_df["Date"])
+
+history = ts_nat.iloc[-120:]  # Last 10 years
+forecast_start = ts_nat.index[-1].to_pydatetime()
+
+fig = go.Figure()
+
+# Historical data
+fig.add_trace(
+    go.Scatter(
+        x=history.index,
+        y=history.values,
+        mode="lines",
+        name="Historical",
+        line=dict(color="#3498db", width=1.5)
+    )
+)
+
+# Forecast
+fig.add_trace(
+    go.Scatter(
+        x=forecast_df["Date"],
+        y=forecast_df["Forecast"],
+        mode="lines+markers",
+        name="Forecast",
+        line=dict(color="#e74c3c", dash="dash", width=2),
+        marker=dict(size=6)
+    )
+)
+
+# Confidence interval
+fig.add_trace(
+    go.Scatter(
+        x=pd.concat([forecast_df["Date"], forecast_df["Date"][::-1]]),
+        y=pd.concat([
+            forecast_df["Upper 95% CI"],
+            forecast_df["Lower 95% CI"][::-1]
+        ]),
+        fill="toself",
+        fillcolor="rgba(231, 76, 60, 0.2)",
+        line=dict(color="rgba(255,255,255,0)"),
+        name="95% Confidence Interval"
+    )
+)
+
+# Vertical line (no annotation here)
+fig.add_vline(
+    x=forecast_start,
+    line_dash="dot",
+    line_color="gray",
+    line_width=2
+)
+
+# Manual annotation (no datetime arithmetic)
+fig.add_annotation(
+    x=forecast_start,
+    y=1,
+    yref="paper",
+    text="Forecast Start",
+    showarrow=False,
+    xanchor="left",
+    yanchor="bottom",
+    font=dict(size=12, color="gray")
+)
+
+fig.update_layout(
+    title="National Monthly Rainfall – 24-Month Forecast",
+    xaxis_title="Date",
+    yaxis_title="Rainfall (mm)",
+    template="plotly_white",
+    height=500,
+    legend=dict(
+        yanchor="top",
+        y=0.99,
+        xanchor="left",
+        x=0.01
+    )
+)
+
+fig.show()
+```
+
+---
+
+## Forecast Interpretation
+
+::: {.columns}
+::: {.column width="50%"}
+### Key Observations
+- Forecast preserves **strong annual cycle**
+- High rainfall predicted for monsoon months (May–October)
+- Low rainfall during dry season (November–April)
+- No dramatic upward/downward trend
+:::
+
+::: {.column width="50%"}
+### Uncertainty
+::: {.callout-important}
+- **Confidence intervals widen** over time
+- Greater uncertainty for longer horizons
+- Forecasts should be updated as new data becomes available
+:::
+:::
+:::
+
+---
+
+## Annual Forecast Summary
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show annual summary"
+
+forecast_df["Year"] = forecast_df["Date"].dt.year
+forecast_df["Month"] = forecast_df["Date"].dt.strftime("%b")
+
+# Pivot for display
+pivot_forecast = forecast_df.pivot(index="Month", columns="Year", values="Forecast")
+# Reorder months
+month_order = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+pivot_forecast = pivot_forecast.reindex(month_order)
+
+fig = px.imshow(
+    pivot_forecast,
+    title="Forecasted Monthly Rainfall Heatmap",
+    labels=dict(x="Year", y="Month", color="Rainfall (mm)"),
+    color_continuous_scale="Blues",
+    aspect="auto"
+)
+fig.update_layout(height=450, template="plotly_white")
+fig.show()
+```
+
+::: {.callout-note}
+The heatmap shows the expected seasonal pattern: darker blues (higher rainfall) during monsoon months.
+:::
+
+---
+
+## Model Summary Statistics
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show model summary"
+
+# Extract key coefficients
+summary_data = {
+    "Parameter": [],
+    "Estimate": [],
+    "Std Error": [],
+    "P-value": []
+}
+
+params = final_fitted.params
+pvalues = final_fitted.pvalues
+bse = final_fitted.bse
+
+for param in params.index:
+    summary_data["Parameter"].append(param)
+    summary_data["Estimate"].append(round(params[param], 4))
+    summary_data["Std Error"].append(round(bse[param], 4))
+    summary_data["P-value"].append(round(pvalues[param], 4))
+
+pd.DataFrame(summary_data)
+```
+
+::: {.callout-tip}
+All seasonal parameters are statistically significant (p < 0.05), confirming the importance of the seasonal component.
+:::
+
+---
+
+## Conclusions
+
+::: {.columns}
+::: {.column width="50%"}
+### Key Findings
+1. **Strong seasonality** dominates Cambodia's rainfall pattern
+2. **Monsoon cycle** (12-month period) is consistent over 45+ years
+3. **SARIMA(0,0,1)×(1,1,1,12)** provides best forecasting performance
+4. No significant long-term trend detected
+:::
+
+::: {.column width="50%"}
+### Model Performance
+::: {.callout-tip}
+| Metric | Value |
+|--------|-------|
+| RMSE | ~2,500 mm |
+| MAE | ~1,800 mm |
+| R² | ~0.70 |
+:::
+:::
+:::
+
+---
+
+## Recommendations
+
+::: {.incremental}
+1. **Agricultural Planning**
+   - Schedule planting/harvesting around predicted monsoon timing
+   - Allocate water resources based on seasonal forecasts
+
+2. **Disaster Preparedness**
+   - Monitor deviations from forecasted rainfall
+   - Prepare for potential flooding during peak monsoon months
+
+3. **Model Improvements**
+   - Incorporate climate indices (ENSO, IOD) as exogenous variables
+   - Consider ensemble forecasting for better uncertainty quantification
+   - Update models annually with new observations
+:::
+
+---
+
+## Limitations
+
+::: {.columns}
+::: {.column width="50%"}
+### Data Limitations
+- Aggregated national data may mask regional variations
+- Historical data quality varies over time
+- Missing values required imputation
+:::
+
+::: {.column width="50%"}
+### Model Limitations
+- Linear ARIMA may not capture extreme events
+- Long-term climate change not explicitly modeled
+- Forecast uncertainty increases with horizon
+:::
+:::
+
+::: {.callout-important}
+Future work should explore **provincial-level analysis** and **climate-informed models** (e.g., SARIMAX with ENSO indices).
+:::
+
+---
+
+## References
+
+::: {.columns}
+::: {.column width="50%"}
+### Data Source
+- **HDX Cambodia Rainfall Dataset**  
+  [data.humdata.org](https://data.humdata.org)
+
+### Methodology
+- Box, G.E.P., Jenkins, G.M., Reinsel, G.C. (2015). *Time Series Analysis: Forecasting and Control*
+:::
+
+::: {.column width="50%"}
+### Tools & Libraries
+- **Python:** pandas, numpy, statsmodels
+- **Visualization:** Plotly
+- **Presentation:** Quarto RevealJS
+- **Styling:** Custom SCSS
+:::
+:::
+
+---
+
+## {.center}
+
+### Thank You!
+
+::: {.columns}
+::: {.column width="100%"}
+**Course:** Time Series Analysis  
+**Group:** 01  
+**Instructor:** Dr. SIM Tepmony  
+**Date:** January 2026
+
+::: {.callout-tip}
+Questions & Discussion Welcome!
+:::
+:::
+:::
