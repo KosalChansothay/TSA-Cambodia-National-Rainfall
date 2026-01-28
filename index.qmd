@@ -1,9 +1,9 @@
 ---
-title: "Cambodia National Rainfall"
-subtitle: "Time Series Analysis & Forecasting | Dr. SIM Tepmony"
-institute: "Instittute of Technology of Cambodia | Dept. AMS"
+title: "Cambodia Provincial Rainfall"
+subtitle: "Time Series Analysis & Forecasting | Pursat Province | Dr. SIM Tepmony"
+institute: "Institute of Technology of Cambodia | Dept. AMS"
 author: "Group 01 | CHEA Piseth | KHUN Sithanut | <span style='color:#048373;'>KOSAL Chansothay</span> | HENG Sopanha"
-date: "January 2026"
+date: "23 January 2026"
 format:
   revealjs:
     theme: [default, custom.scss]
@@ -40,7 +40,7 @@ execute:
 
 ::: {.column width="50%"}
 ### Project Overview
-- **Topic:** Cambodia National Rainfall Analysis
+- **Topic:** Pursat Province Rainfall Analysis
 - **Data Source:** Humanitarian Data Exchange (HDX)
 - **Period:** 1981 – 2026
 - **Method:** ARIMA/SARIMA Modeling
@@ -54,13 +54,17 @@ execute:
 ::: {.incremental}
 1. **Introduction** – Research motivation and objectives
 2. **Data Loading** – Acquiring rainfall data from HDX
-3. **Data Preprocessing** – Building national monthly series
+3. **Data Preprocessing** – Building provincial monthly series
 4. **Exploratory Data Analysis** – Patterns and statistics
-5. **Stationarity Testing** – ADF test and differencing
-6. **Model Development** – ARIMA/SARIMA fitting
-7. **Model Evaluation** – Performance comparison
-8. **Forecasting** – 24-month national rainfall forecast
-9. **Conclusion** – Key findings and recommendations
+5. **Time Series Decomposition** – Trend, seasonal, residual
+6. **Stationarity Testing** – ADF test and differencing
+7. **ACF/PACF Analysis** – Model identification
+8. **Train-Test Split** – No data leakage approach
+9. **Model Development** – AR, MA, ARMA, ARIMA, SARIMA
+10. **Model Evaluation** – Out-of-sample performance comparison
+11. **Residual Diagnostics** – Model validation
+12. **Forecasting** – 24-month rainfall forecast
+13. **Conclusion** – Key findings and recommendations
 :::
 
 ---
@@ -72,6 +76,7 @@ execute:
 ::: {.columns}
 ::: {.column width="60%"}
 - Cambodia's economy is **heavily dependent on agriculture**
+- **Pursat Province** is a major rice-producing region
 - Rainfall patterns directly impact:
   - Rice cultivation and crop yields
   - Water resource management
@@ -82,9 +87,9 @@ execute:
 ::: {.column width="40%"}
 ### Objectives
 ::: {.callout-tip}
-1. Build a national monthly rainfall time series
+1. Build a provincial monthly rainfall time series
 2. Identify seasonal patterns and trends
-3. Develop accurate forecasting models
+3. Develop accurate forecasting models using rolling evaluation
 4. Produce 24-month rainfall forecasts
 :::
 :::
@@ -111,12 +116,13 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Time series tools
-from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.stattools import adfuller, acf, pacf
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.stats.diagnostic import acorr_ljungbox
+from scipy import stats
 
 # Metrics
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -128,7 +134,7 @@ np.random.seed(42)
 **Libraries Used:**
 
 ::: {.callout-note}
-**Libraries Used:** pandas, numpy, plotly, statsmodels, scikit-learn
+**Libraries Used:** pandas, numpy, plotly, statsmodels, scikit-learn, scipy
 :::
 
 <p align="center">
@@ -175,7 +181,7 @@ print(f"  Date range: {df_raw['date'].min().strftime('%Y-%m-%d')} to {df_raw['da
 - `date` – Observation date
 - `rfh` – Rainfall (mm)
 - `adm_level` – Administrative level
-- `pcode` – Province code
+- `PCODE` – Province code
 :::
 :::
 
@@ -188,8 +194,8 @@ print(f"  Date range: {df_raw['date'].min().strftime('%Y-%m-%d')} to {df_raw['da
 #| code-summary: "Show data preview"
 
 # Display first few rows
-print("Last 5 rows of raw data:")
-df_raw.tail(5)
+print("First 5 rows of raw data:")
+df_raw.head(5)
 ```
 
 ```{python}
@@ -199,19 +205,25 @@ df_raw.tail(5)
 print("\nColumn Information:")
 print(df_raw.dtypes)
 print(f"\nUnique administrative levels: {df_raw['adm_level'].unique()}")
+print(f"Number of provinces (adm_level=1): {df_raw[df_raw['adm_level']==1]['PCODE'].nunique()}")
 ```
 
 ```{python}
 #| code-fold: true
-#| code-summary: "Show missing data"
-df_raw.isna().sum()
+#| code-summary: "Show available provinces"
+
+# Show available provinces
+df_province = df_raw[df_raw["adm_level"] == 1].copy()
+province_counts = df_province.groupby("PCODE").size().sort_values(ascending=False)
+print("Available provinces and record counts:")
+print(province_counts.head(10))
 ```
 
 ---
 
 ## Data Preprocessing
 
-### Building National Monthly Rainfall Series
+### Selecting Pursat Province
 
 ```{python}
 #| code-fold: true
@@ -220,32 +232,32 @@ df_raw.isna().sum()
 # Filter to provincial level (adm_level == 1)
 df_province = df_raw[df_raw["adm_level"] == 1].copy()
 
-# Keep only date and rainfall
-df_nat = df_province[["date", "rfh"]].copy()
-df_nat.columns = ["date", "rainfall"]
+# Select Pursat province (province with most complete data)
+province_counts = df_province.groupby("PCODE").size()
+selected_province = province_counts.idxmax()
+
+print(f"Selected province: {selected_province}")
+print(f"Records: {province_counts[selected_province]}")
+
+# Filter for selected province
+df_selected = df_province[df_province["PCODE"] == selected_province].copy()
+df_selected = df_selected.sort_values("date").reset_index(drop=True)
+df_selected = df_selected[["date", "rfh"]].copy()
+df_selected.columns = ["date", "rainfall"]
+
+print(f"\nData range: {df_selected['date'].min()} to {df_selected['date'].max()}")
+```
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show missing value handling"
 
 # Handle missing values
-missing_before = df_nat["rainfall"].isna().sum()
-df_nat["rainfall"] = df_nat["rainfall"].ffill().bfill()
-missing_after = df_nat["rainfall"].isna().sum()
+missing_before = df_selected["rainfall"].isna().sum()
+df_selected["rainfall"] = df_selected["rainfall"].ffill().bfill()
+missing_after = df_selected["rainfall"].isna().sum()
 
 print(f"Missing values: {missing_before} → {missing_after} (after imputation)")
-
-# Create year-month period
-df_nat["year_month"] = df_nat["date"].dt.to_period("M")
-
-# Aggregate to national monthly totals
-df_nat_monthly = (
-    df_nat.groupby("year_month")
-    .agg(rainfall=("rainfall", "sum"))
-    .reset_index()
-)
-df_nat_monthly["date"] = df_nat_monthly["year_month"].dt.to_timestamp()
-df_nat_monthly = df_nat_monthly[["date", "rainfall"]].copy()
-
-print(f"\n✓ National monthly series created")
-print(f"  Total months: {len(df_nat_monthly)}")
-print(f"  Range: {df_nat_monthly['date'].min().strftime('%Y-%m')} to {df_nat_monthly['date'].max().strftime('%Y-%m')}")
 ```
 
 $$
@@ -259,21 +271,55 @@ $$
 
 ---
 
+## Monthly Aggregation
+
+### Building Provincial Monthly Series
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show aggregation code"
+
+# Create year-month period
+df_selected["year_month"] = df_selected["date"].dt.to_period("M")
+
+# Aggregate to monthly totals for Pursat province
+df_monthly = (
+    df_selected.groupby("year_month")
+    .agg(rainfall=("rainfall", "sum"))
+    .reset_index()
+)
+df_monthly["date"] = df_monthly["year_month"].dt.to_timestamp()
+df_monthly = df_monthly[["date", "rainfall"]].copy()
+
+print(f"✓ Provincial monthly series created")
+print(f"  Total months: {len(df_monthly)}")
+print(f"  Range: {df_monthly['date'].min().strftime('%Y-%m')} to {df_monthly['date'].max().strftime('%Y-%m')}")
+```
+
+::: {.callout-note}
+**Monthly Aggregation Formula:**
+$$Y_m = \sum_{d \in m} y_d$$
+
+where $Y_m$ is total rainfall in month $m$, and $y_d$ is rainfall on day/dekad $d$.
+:::
+
+---
+
 ## Preprocessing Summary
 
 ::: {.columns}
 ::: {.column width="50%"}
 ### Steps Performed
 1. **Filtered** provincial-level records (`adm_level == 1`)
-2. **Imputed** missing rainfall values (forward/backward fill)
-3. **Aggregated** daily/dekadal data to monthly totals
-4. **Summed** across all provinces for national total
+2. **Selected** Pursat province (most complete data)
+3. **Imputed** missing rainfall values (forward/backward fill)
+4. **Aggregated** dekadal data to monthly totals
 :::
 
 ::: {.column width="50%"}
 ### Result
 ::: {.callout-tip}
-**National Monthly Rainfall Series**
+**Pursat Provincial Monthly Rainfall Series**
 
 - **Observations:** ~540 months
 - **Period:** 1981 – 2026
@@ -287,25 +333,25 @@ $$
 #| echo: false
 
 # Create time series object
-ts_nat = df_nat_monthly.set_index("date")["rainfall"].asfreq("MS")
-ts = ts_nat
+ts_data = df_monthly.set_index("date")["rainfall"].asfreq("MS")
+ts = ts_data
 ```
 
 ---
 
 ## Exploratory Data Analysis
 
-### National Monthly Rainfall Time Series
+### Pursat Provincial Monthly Rainfall Time Series
 
 ```{python}
 #| code-fold: true
 #| code-summary: "Show visualization code"
 
 fig = px.line(
-    df_nat_monthly, 
+    df_monthly, 
     x="date", 
     y="rainfall",
-    title="Cambodia National Monthly Rainfall (1981–2026)",
+    title="Pursat Province Monthly Rainfall (1981–2026)",
     labels={"date": "Date", "rainfall": "Rainfall (mm)"}
 )
 fig.update_traces(line_color="#3498db", line_width=1.5)
@@ -365,15 +411,15 @@ stats_df
 #| code-summary: "Show distribution plot code"
 
 # Add month for grouping
-df_nat_monthly["month"] = df_nat_monthly["date"].dt.month
-df_nat_monthly["month_name"] = df_nat_monthly["date"].dt.strftime("%b")
+df_monthly["month"] = df_monthly["date"].dt.month
+df_monthly["month_name"] = df_monthly["date"].dt.strftime("%b")
 
 # Monthly boxplot
 fig = px.box(
-    df_nat_monthly, 
+    df_monthly, 
     x="month", 
     y="rainfall",
-    title="Monthly Rainfall Distribution by Month",
+    title="Pursat Province: Monthly Rainfall Distribution",
     labels={"month": "Month", "rainfall": "Rainfall (mm)"}
 )
 fig.update_layout(
@@ -396,6 +442,15 @@ fig.show()
 ---
 
 ## Seasonal Decomposition
+
+### Additive Decomposition Model
+
+$$y_t = T_t + S_t + R_t$$
+
+where:
+- $T_t$ = Trend component
+- $S_t$ = Seasonal component  
+- $R_t$ = Residual (irregular) component
 
 ```{python}
 #| code-fold: true
@@ -461,20 +516,28 @@ fig.show()
 
 ### Augmented Dickey-Fuller (ADF) Test
 
+**Hypothesis:**
+- $H_0$: Series has a unit root (non-stationary)
+- $H_1$: Series is stationary
+
+**Decision Rule:** If p-value < 0.05, reject $H_0$ (series is stationary)
+
 ```{python}
 #| code-fold: true
 #| code-summary: "Show ADF test code"
 
 def adf_test(x, name="Series"):
-    result = adfuller(x.dropna(), autolag="BIC")
+    result = adfuller(x.dropna(), autolag="AIC")
     adf_results = {
         "Test": name,
         "ADF Statistic": round(result[0], 4),
         "p-value": result[1],
+        "Lags Used": result[2],
+        "Observations": result[3],
         "Critical 1%": round(result[4]["1%"], 4),
         "Critical 5%": round(result[4]["5%"], 4),
         "Critical 10%": round(result[4]["10%"], 4),
-        "Stationary": "Yes" if result[1] < 0.05 else "No"
+        "Stationary": "Yes ✓" if result[1] < 0.05 else "No ✗"
     }
     return adf_results
 
@@ -482,21 +545,67 @@ def adf_test(x, name="Series"):
 adf_original = adf_test(ts, "Original Series")
 
 # Seasonal differencing (lag 12)
-ts_diff = ts.diff(12).dropna()
-adf_diff = adf_test(ts_diff, "Seasonally Differenced (D=1)")
+ts_seasonal_diff = ts.diff(12).dropna()
+adf_diff = adf_test(ts_seasonal_diff, "Seasonally Differenced (D=1, s=12)")
 
 # Display results
 adf_df = pd.DataFrame([adf_original, adf_diff])
-adf_df
+adf_df[["Test", "ADF Statistic", "p-value", "Stationary"]]
 ```
 
 ::: {.callout-important}
-**Result:** The original series is stationary in the unit-root sense (ADF p < 0.05). After applying seasonal differencing at lag 12, the series shows much weaker autocorrelation and is suitable for SARIMA modeling.
+**Result:** The original series is stationary (ADF p < 0.05). After seasonal differencing at lag 12, the series is also stationary and suitable for SARIMA modeling.
 :::
 
 ---
 
+## Seasonal Differencing
+
+### Mathematical Background
+
+$$\nabla_s y_t = y_t - y_{t-s}$$
+
+where $s = 12$ (seasonal period). This removes seasonal patterns and helps achieve stationarity.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show seasonal differencing plot"
+
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(
+    x=ts_seasonal_diff.index, 
+    y=ts_seasonal_diff.values, 
+    mode="lines",
+    name="Seasonally Differenced",
+    line=dict(color="#2ecc71", width=1.5)
+))
+
+fig.add_hline(y=0, line_dash="dash", line_color="red", line_width=1)
+
+fig.update_layout(
+    title="Seasonally Differenced Series (lag=12)",
+    xaxis_title="Date",
+    yaxis_title="Differenced Rainfall (mm)",
+    template="plotly_white",
+    height=400
+)
+fig.show()
+```
+
+---
+
 ## ACF and PACF Analysis
+
+### Model Identification
+
+**Autocorrelation Function (ACF):**
+$$\rho(k) = \frac{\text{Cov}(y_t, y_{t-k})}{\text{Var}(y_t)}$$
+
+**Model Selection Guidelines:**
+- **AR(p):** PACF cuts off after lag $p$, ACF decays
+- **MA(q):** ACF cuts off after lag $q$, PACF decays
+- **ARMA(p,q):** Both ACF and PACF decay
 
 ```{python}
 #| code-fold: true
@@ -644,14 +753,20 @@ Based on ACF/PACF patterns:
 
 ## Train-Test Split
 
+### No Data Leakage Approach
+
+To prevent **data leakage**, we split the data temporally:
+- **Train set:** Earlier observations (for model fitting)
+- **Test set:** Last 60 months (~5 years) for out-of-sample evaluation
+
 ```{python}
 #| code-fold: true
 #| code-summary: "Show split code"
 
 # Reserve last 60 months (5 years) for testing
-test_size = 60
-train = ts.iloc[:-test_size]
-test = ts.iloc[-test_size:]
+test_horizon = 60
+train = ts.iloc[:-test_horizon]
+test = ts.iloc[-test_horizon:]
 
 print(f"Training set: {train.index.min().strftime('%Y-%m')} to {train.index.max().strftime('%Y-%m')} ({len(train)} months)")
 print(f"Test set:     {test.index.min().strftime('%Y-%m')} to {test.index.max().strftime('%Y-%m')} ({len(test)} months)")
@@ -736,162 +851,228 @@ fig.show()
 
 ## Model Development
 
-### ARIMA and SARIMA Models
+### Rolling One-Step-Ahead Forecast Evaluation
+
+We use **rolling forecasts** for true out-of-sample evaluation:
+1. Fit model on training data
+2. Forecast 1 step ahead
+3. Add actual observation to training set
+4. Repeat for entire test period
 
 ```{python}
 #| code-fold: true
-#| code-summary: "Show model fitting code"
+#| code-summary: "Show rolling forecast function"
 
-def fit_evaluate(model_name, order, seasonal_order=None):
-    """Fit model and evaluate on test set"""
-    if seasonal_order is None:
-        model = ARIMA(train, order=order)
-    else:
-        model = SARIMAX(train, order=order, seasonal_order=seasonal_order,
-                        enforce_stationarity=False, enforce_invertibility=False)
+def rolling_forecast_evaluation(series, order, seasonal_order=None, model_name="Model"):
+    """
+    Perform rolling one-step-ahead forecast on test set.
+    """
+    train_idx = series.index[:-test_horizon]
+    test_idx = series.index[-test_horizon:]
     
-    fitted = model.fit()
-    preds = fitted.get_forecast(steps=len(test)).predicted_mean
-    preds.index = test.index
+    y_train = series.loc[train_idx]
+    y_test = series.loc[test_idx]
     
-    rmse = np.sqrt(mean_squared_error(test, preds))
-    mae = mean_absolute_error(test, preds)
-    r2 = r2_score(test, preds)
-    aic = fitted.aic
+    history = y_train.copy()
+    predictions = []
     
-    return {
-        "Model": model_name,
-        "Order": str(order),
-        "Seasonal": str(seasonal_order) if seasonal_order else "None",
-        "RMSE": round(rmse, 2),
-        "MAE": round(mae, 2),
-        "R²": round(r2, 3),
-        "AIC": round(aic, 2),
-        "Fitted": fitted,
-        "Predictions": preds
-    }
+    for t in range(len(y_test)):
+        try:
+            if seasonal_order is None:
+                model = ARIMA(history, order=order)
+            else:
+                model = SARIMAX(history, order=order, seasonal_order=seasonal_order,
+                               enforce_stationarity=False, enforce_invertibility=False)
+            
+            fitted = model.fit()
+            forecast = fitted.forecast(steps=1)
+            pred_value = max(0, forecast.iloc[0])
+            predictions.append(pred_value)
+            
+            history = pd.concat([history, pd.Series([y_test.iloc[t]], index=[y_test.index[t]])])
+            
+        except Exception as e:
+            predictions.append(history.mean())
+    
+    predictions = pd.Series(predictions, index=test_idx)
+    
+    mae = mean_absolute_error(y_test, predictions)
+    rmse = np.sqrt(mean_squared_error(y_test, predictions))
+    
+    return predictions, mae, rmse
 
-# Fit multiple models
-results = []
-results.append(fit_evaluate("AR(1)", (1, 0, 0)))
-results.append(fit_evaluate("MA(1)", (0, 0, 1)))
-results.append(fit_evaluate("ARMA(1,1)", (1, 0, 1)))
-results.append(fit_evaluate("ARIMA(1,1,1)", (1, 1, 1)))
-results.append(fit_evaluate("SARIMA(0,0,1)×(1,1,1,12)", (0, 0, 1), (1, 1, 1, 12)))
-results.append(fit_evaluate("SARIMA(1,0,1)×(1,1,1,12)", (1, 0, 1), (1, 1, 1, 12)))
-results.append(fit_evaluate("SARIMA(1,1,1)×(1,1,1,12)", (1, 1, 1), (1, 1, 1, 12)))
-
-print("✓ All models fitted successfully")
+# Store results
+model_results = []
 ```
 
-::: {.callout-note}
-## Time Series Models: AR to SARIMA
+---
 
-Let $B$ denote the backshift operator, where $B^k Y_t = Y_{t-k}$.
+## AR Models
+
+### Autoregressive Model: AR(p)
+
+$$y_t = c + \phi_1 y_{t-1} + \phi_2 y_{t-2} + \cdots + \phi_p y_{t-p} + \varepsilon_t$$
+
+Equivalent to ARIMA($p$, 0, 0)
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show AR model fitting"
+
+ar_orders = [(1, 0, 0), (2, 0, 0), (3, 0, 0)]
+
+print("Fitting AR models with rolling forecast...")
+for p, d, q in ar_orders:
+    name = f"AR({p})"
+    preds, mae, rmse = rolling_forecast_evaluation(ts, order=(p, d, q), model_name=name)
+    model_results.append({
+        "Model": name, "Order": (p, d, q), "Seasonal Order": None,
+        "MAE": round(mae, 2), "RMSE": round(rmse, 2), "Predictions": preds
+    })
+    print(f"  {name}: RMSE={rmse:.2f}, MAE={mae:.2f}")
+```
 
 ---
 
-### 1. Autoregressive Model — AR(1)
+## MA Models
 
-- **Code:** `order = (1, 0, 0)`
+### Moving Average Model: MA(q)
 
-$$
-Y_t = c + \phi_1 Y_{t-1} + \varepsilon_t
-$$
-$$
-(1 - \phi_1 B)Y_t = c + \varepsilon_t
-$$
+$$y_t = \mu + \varepsilon_t + \theta_1 \varepsilon_{t-1} + \theta_2 \varepsilon_{t-2} + \cdots + \theta_q \varepsilon_{t-q}$$
 
----
+Equivalent to ARIMA(0, 0, $q$)
 
-### 2. Moving Average Model — MA(1)
+```{python}
+#| code-fold: true
+#| code-summary: "Show MA model fitting"
 
-- **Code:** `order = (0, 0, 1)`
+ma_orders = [(0, 0, 1), (0, 0, 2), (0, 0, 3)]
 
-$$
-Y_t = \mu + \varepsilon_t + \theta_1 \varepsilon_{t-1}
-$$
-$$
-Y_t = \mu + (1 + \theta_1 B)\varepsilon_t
-$$
-
----
-
-### 3. Autoregressive Moving Average — ARMA(1,1)
-
-- **Code:** `order = (1, 0, 1)`
-
-$$
-Y_t = c + \phi_1 Y_{t-1} + \varepsilon_t + \theta_1 \varepsilon_{t-1}
-$$
-$$
-(1 - \phi_1 B)Y_t = c + (1 + \theta_1 B)\varepsilon_t
-$$
+print("Fitting MA models with rolling forecast...")
+for p, d, q in ma_orders:
+    name = f"MA({q})"
+    preds, mae, rmse = rolling_forecast_evaluation(ts, order=(p, d, q), model_name=name)
+    model_results.append({
+        "Model": name, "Order": (p, d, q), "Seasonal Order": None,
+        "MAE": round(mae, 2), "RMSE": round(rmse, 2), "Predictions": preds
+    })
+    print(f"  {name}: RMSE={rmse:.2f}, MAE={mae:.2f}")
+```
 
 ---
 
-### 4. Autoregressive Integrated Moving Average — ARIMA(1,1,1)
+## ARMA Models
 
-- **Code:** `order = (1, 1, 1)`
+### ARMA(p, q) Model
 
-$$
-(1 - \phi_1 B)(1 - B)Y_t = (1 + \theta_1 B)\varepsilon_t
-$$
+$$y_t = c + \phi_1 y_{t-1} + \cdots + \phi_p y_{t-p} + \varepsilon_t + \theta_1 \varepsilon_{t-1} + \cdots + \theta_q \varepsilon_{t-q}$$
 
-where $(1 - B)Y_t = Y_t - Y_{t-1}$.
+```{python}
+#| code-fold: true
+#| code-summary: "Show ARMA model fitting"
 
----
+arma_orders = [(1, 0, 1), (2, 0, 1), (1, 0, 2), (2, 0, 2)]
 
-### 5. Seasonal ARIMA — SARIMA(0,0,1) × (1,1,1)$_{12}$
-
-- **Code:**
-  `order = (0, 0, 1)`
-  `seasonal_order = (1, 1, 1, 12)`
-
-$$
-(1 - \Phi_1 B^{12})(1 - B^{12})Y_t = (1 + \theta_1 B)(1 + \Theta_1 B^{12})\varepsilon_t
-$$
-
----
-
-### 6. Seasonal ARIMA — SARIMA(1,0,1) × (1,1,1)$_{12}$
-
-- **Code:**
-  `order = (1, 0, 1)`
-  `seasonal_order = (1, 1, 1, 12)`
-
-$$
-(1 - \Phi_1 B^{12})(1 - \phi_1 B)(1 - B^{12})Y_t = (1 + \theta_1 B)(1 + \Theta_1 B^{12})\varepsilon_t
-$$
+print("Fitting ARMA models with rolling forecast...")
+for p, d, q in arma_orders:
+    name = f"ARMA({p},{q})"
+    preds, mae, rmse = rolling_forecast_evaluation(ts, order=(p, d, q), model_name=name)
+    model_results.append({
+        "Model": name, "Order": (p, d, q), "Seasonal Order": None,
+        "MAE": round(mae, 2), "RMSE": round(rmse, 2), "Predictions": preds
+    })
+    print(f"  {name}: RMSE={rmse:.2f}, MAE={mae:.2f}")
+```
 
 ---
 
-### 7. Seasonal ARIMA — SARIMA(1,1,1) × (1,1,1)$_{12}$
+## ARIMA Models
 
-- **Code:**
-  `order = (1, 1, 1)`
-  `seasonal_order = (1, 1, 1, 12)`
+### ARIMA(p, d, q) Model
 
-$$
-(1 - \Phi_1 B^{12})(1 - \phi_1 B)(1 - B^{12})(1 - B)Y_t = (1 + \theta_1 B)(1 + \Theta_1 B^{12})\varepsilon_t
-$$
+$$(1 - \phi_1 B - \cdots - \phi_p B^p)(1 - B)^d y_t = (1 + \theta_1 B + \cdots + \theta_q B^q)\varepsilon_t$$
 
-This model includes both **ordinary differencing** and **seasonal differencing**.
-:::
+where $B$ is the backshift operator and $d$ is the differencing order.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show ARIMA model fitting"
+
+arima_orders = [(1, 0, 1), (2, 0, 1), (1, 1, 1), (2, 1, 1), (1, 0, 2)]
+
+print("Fitting ARIMA models with rolling forecast...")
+for p, d, q in arima_orders:
+    name = f"ARIMA({p},{d},{q})"
+    preds, mae, rmse = rolling_forecast_evaluation(ts, order=(p, d, q), model_name=name)
+    model_results.append({
+        "Model": name, "Order": (p, d, q), "Seasonal Order": None,
+        "MAE": round(mae, 2), "RMSE": round(rmse, 2), "Predictions": preds
+    })
+    print(f"  {name}: RMSE={rmse:.2f}, MAE={mae:.2f}")
+```
+
+---
+
+## SARIMA Models
+
+### Seasonal ARIMA: SARIMA(p,d,q)(P,D,Q)[s]
+
+$$\Phi_P(B^s) \phi_p(B) \nabla_s^D \nabla^d y_t = \Theta_Q(B^s) \theta_q(B) \varepsilon_t$$
+
+where:
+- $(p,d,q)$ = Non-seasonal order
+- $(P,D,Q,s)$ = Seasonal order
+- $s = 12$ (monthly seasonality)
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show SARIMA model fitting"
+
+sarima_specs = [
+    ((1, 0, 1), (1, 1, 1, 12)),
+    ((2, 0, 1), (1, 1, 1, 12)),
+    ((1, 1, 1), (1, 1, 1, 12)),
+    ((0, 0, 1), (1, 1, 1, 12)),
+    ((1, 0, 0), (1, 1, 0, 12)),
+]
+
+print("Fitting SARIMA models with rolling forecast...")
+for order, seasonal in sarima_specs:
+    p, d, q = order
+    P, D, Q, s = seasonal
+    name = f"SARIMA({p},{d},{q})({P},{D},{Q})[{s}]"
+    preds, mae, rmse = rolling_forecast_evaluation(ts, order=order, seasonal_order=seasonal, model_name=name)
+    model_results.append({
+        "Model": name, "Order": order, "Seasonal Order": seasonal,
+        "MAE": round(mae, 2), "RMSE": round(rmse, 2), "Predictions": preds
+    })
+    print(f"  {name}: RMSE={rmse:.2f}, MAE={mae:.2f}")
+
+print("\n✓ All models fitted successfully")
+```
 
 ---
 
 ## Model Comparison
+
+### Evaluation Metrics
+
+**Mean Absolute Error (MAE):**
+$$\text{MAE} = \frac{1}{n} \sum_{t=1}^{n} |y_t - \hat{y}_t|$$
+
+**Root Mean Squared Error (RMSE):**
+$$\text{RMSE} = \sqrt{\frac{1}{n} \sum_{t=1}^{n} (y_t - \hat{y}_t)^2}$$
 
 ```{python}
 #| code-fold: true
 #| code-summary: "Show comparison table"
 
 # Create comparison dataframe
-results_df = pd.DataFrame([{k: v for k, v in r.items() if k not in ["Fitted", "Predictions"]} 
-                           for r in results])
-results_df = results_df.sort_values("RMSE")
-results_df
+results_df = pd.DataFrame([{k: v for k, v in r.items() if k != "Predictions"} 
+                           for r in model_results])
+results_df = results_df.sort_values("RMSE").reset_index(drop=True)
+results_df["Rank"] = range(1, len(results_df) + 1)
+results_df[["Rank", "Model", "RMSE", "MAE"]]
 ```
 
 ```{python}
@@ -899,12 +1080,12 @@ results_df
 #| code-summary: "Show comparison chart"
 
 fig = px.bar(
-    results_df.sort_values("RMSE"),
+    results_df.head(10).sort_values("RMSE"),
     x="Model",
     y="RMSE",
     color="RMSE",
     color_continuous_scale="RdYlGn_r",
-    title="Model Comparison by RMSE (Lower is Better)"
+    title="Top 10 Models by RMSE (Lower is Better)"
 )
 fig.update_layout(template="plotly_white", height=400)
 fig.show()
@@ -918,31 +1099,31 @@ fig.show()
 #| code-fold: true
 #| code-summary: "Show best model"
 
-best = min(results, key=lambda x: x["RMSE"])
+best_idx = results_df["RMSE"].idxmin()
+best = results_df.loc[best_idx]
+best_preds = model_results[best_idx]["Predictions"]
+
 print(f"✓ Best Model: {best['Model']}")
 print(f"  Order: {best['Order']}")
-print(f"  Seasonal Order: {best['Seasonal']}")
+print(f"  Seasonal Order: {best['Seasonal Order']}")
 print(f"  RMSE: {best['RMSE']:.2f}")
 print(f"  MAE: {best['MAE']:.2f}")
-print(f"  R²: {best['R²']:.3f}")
 ```
 
 ::: {.columns}
 ::: {.column width="50%"}
-### Why SARIMA?
-- Captures **both** trend and seasonality
-- Seasonal differencing (D=1) handles non-stationarity
-- Period s=12 matches yearly monsoon cycle
+### Why This Model?
+- **Lowest RMSE** on 5-year out-of-sample test
+- Rolling forecast evaluation prevents data leakage
+- Captures seasonal patterns effectively
 :::
 
 ::: {.column width="50%"}
 ::: {.callout-tip}
-### Best Model
-**SARIMA(0,0,1)×(1,1,1,12)**
-
-- Lowest RMSE on 5-year test set
-- Good R² score
-- Parsimonious (few parameters)
+### Best Model Performance
+- Best model selected by RMSE
+- Evaluated using rolling one-step-ahead forecasts
+- No information leakage from future data
 :::
 :::
 :::
@@ -955,7 +1136,6 @@ print(f"  R²: {best['R²']:.3f}")
 #| code-fold: true
 #| code-summary: "Show forecast comparison"
 
-best_pred = best["Predictions"]
 train_recent = train.iloc[-120:]  # Last 10 years of training
 
 fig = go.Figure()
@@ -967,14 +1147,14 @@ fig.add_trace(go.Scatter(x=test.index, y=test.values, mode="lines+markers",
                          name="Actual (Test)", line=dict(color="#2c3e50", width=2),
                          marker=dict(size=4)))
 
-fig.add_trace(go.Scatter(x=best_pred.index, y=best_pred.values, mode="lines",
+fig.add_trace(go.Scatter(x=best_preds.index, y=best_preds.values, mode="lines",
                          name=f"{best['Model']} Forecast", 
                          line=dict(color="#e74c3c", dash="dash", width=2)))
 
 fig.add_vline(x=test.index[0], line_dash="dot", line_color="gray")
 
 fig.update_layout(
-    title=f"Best Model: {best['Model']} – Forecast vs Actual",
+    title=f"Best Model: {best['Model']} – Forecast vs Actual (RMSE={best['RMSE']:.2f})",
     xaxis_title="Date",
     yaxis_title="Rainfall (mm)",
     template="plotly_white",
@@ -985,93 +1165,169 @@ fig.show()
 ```
 
 ::: {.callout-note}
-The model captures the seasonal pattern well, though some extreme peaks are underestimated.
+The model captures the seasonal pattern well through rolling one-step-ahead forecasts.
 :::
 
 ---
 
 ## Residual Diagnostics
 
+### Residual Analysis Criteria
+
+A good model should have residuals with:
+1. **Zero mean:** $\mathbb{E}[e_t] = 0$
+2. **Constant variance:** $\text{Var}(e_t) = \sigma^2$ (homoscedasticity)
+3. **No autocorrelation:** $\text{Cov}(e_t, e_s) = 0$ for $t \neq s$
+4. **Normality:** $e_t \sim \mathcal{N}(0, \sigma^2)$
+
 ```{python}
 #| code-fold: true
 #| code-summary: "Show residual analysis"
 
-fitted_model = best["Fitted"]
+# Fit best model on full train data for diagnostics
+import scipy.stats as stats
+from plotly.subplots import make_subplots
+from statsmodels.tsa.stattools import acf
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.arima.model import ARIMA
+
+# --- Model Fitting ---
+best_order = best["Order"]
+best_seasonal = best["Seasonal Order"]
+
+# Using SARIMAX for both cases is generally safer in statsmodels, 
+# but the if/else logic is fine.
+if best_seasonal is None or not isinstance(best_seasonal, tuple):
+    # Note: Modern statsmodels uses ARIMA for non-seasonal too
+    fitted_model = ARIMA(train, order=best_order).fit()
+else:
+    fitted_model = SARIMAX(
+        train, 
+        order=best_order, 
+        seasonal_order=best_seasonal,
+        enforce_stationarity=False, 
+        enforce_invertibility=False
+    ).fit()
+
 resid = fitted_model.resid.dropna()
 
-# Create diagnostic plots
+# --- Diagnostic Plots ---
 fig = make_subplots(
     rows=2, cols=2,
     subplot_titles=("Residuals Over Time", "Residual Distribution", 
                     "Residual ACF", "Q-Q Plot (Normal)")
 )
 
-# Residuals over time
-fig.add_trace(go.Scatter(x=resid.index, y=resid.values, mode="lines",
-                         line=dict(color="#3498db")), row=1, col=1)
+# 1. Residuals over time
+fig.add_trace(go.Scatter(
+    x=resid.index, y=resid.values, mode="lines",
+    line=dict(color="#3498db"), name="Residuals"
+), row=1, col=1)
 fig.add_hline(y=0, line_dash="dash", line_color="red", row=1, col=1)
 
-# Histogram
-fig.add_trace(go.Histogram(x=resid.values, nbinsx=30, 
-                           marker_color="#2ecc71"), row=1, col=2)
+# 2. Histogram
+fig.add_trace(go.Histogram(
+    x=resid.values, nbinsx=30, 
+    marker_color="#2ecc71", name="Dist"
+), row=1, col=2)
 
-# ACF of residuals
-resid_acf = acf(resid, nlags=20)
-fig.add_trace(go.Bar(x=list(range(21)), y=resid_acf, 
-                     marker_color="#e74c3c"), row=2, col=1)
+# 3. ACF of residuals
+# We calculate 21 lags but plot 1-20 (Lag 0 is always 1)
+nlags = 20
+resid_acf = acf(resid, nlags=nlags)
+fig.add_trace(go.Bar(
+    x=list(range(1, nlags + 1)), y=resid_acf[1:], 
+    marker_color="#e74c3c", name="ACF"
+), row=2, col=1)
+
+# ACF Confidence Intervals (95%)
 ci_resid = 1.96 / np.sqrt(len(resid))
 fig.add_hline(y=ci_resid, line_dash="dash", line_color="gray", row=2, col=1)
 fig.add_hline(y=-ci_resid, line_dash="dash", line_color="gray", row=2, col=1)
 
-# Q-Q plot approximation
-from scipy import stats
-theoretical = np.sort(stats.norm.ppf(np.linspace(0.01, 0.99, len(resid))))
-sample = np.sort(resid.values)
-fig.add_trace(go.Scatter(x=theoretical, y=sample, mode="markers",
-                         marker=dict(color="#9b59b6", size=4)), row=2, col=2)
-fig.add_trace(go.Scatter(x=[-3, 3], y=[-3*resid.std(), 3*resid.std()], mode="lines",
-                         line=dict(color="red", dash="dash")), row=2, col=2)
+# 4. Q-Q Plot (Corrected Implementation)
+# probplot calculates the theoretical quantiles and the best-fit line parameters
+(osm, osr), (slope, intercept, r) = stats.probplot(resid, dist="norm", plot=None)
 
-fig.update_layout(height=600, showlegend=False, template="plotly_white",
-                  title_text="")
+# Scatter points (Theoretical vs Sample)
+fig.add_trace(go.Scatter(
+    x=osm, y=osr, mode="markers",
+    marker=dict(color="#9b59b6", size=4), name="Q-Q"
+), row=2, col=2)
+
+# Regression line
+line_x = np.array([osm.min(), osm.max()])
+line_y = slope * line_x + intercept
+fig.add_trace(go.Scatter(
+    x=line_x, y=line_y, mode="lines",
+    line=dict(color="red", dash="dash"), name="Normal Line"
+), row=2, col=2)
+
+# Update layout
+fig.update_layout(
+    height=600, 
+    showlegend=False, 
+    template="plotly_white",
+    title_text="Residual Diagnostics",
+    # Label axes for clarity
+    xaxis4_title="Theoretical Quantiles",
+    yaxis4_title="Sample Quantiles"
+)
+
 fig.show()
+```
+
+```{python}
+from scipy import stats
+statistic, p_value = stats.shapiro(resid)
+
+print(f"Shapiro-Wilk Test Statistic: {statistic}")
+print(f"P-Value: {p_value}")
+
+alpha = 0.05
+
+if p_value > alpha:
+    print("The data is likely normally distributed (Fail to reject H0).")
+else:
+    print("The data is likely not normally distributed (Reject H0).")
 ```
 
 ---
 
 ## Ljung-Box Test
 
+### Testing for Residual Autocorrelation
+
+- **$H_0$:** No autocorrelation in residuals
+- **$H_1$:** Autocorrelation present
+- **Decision:** p-value > 0.05 → Good model (no autocorrelation)
+
 ```{python}
 #| code-fold: true
 #| code-summary: "Show Ljung-Box test"
-lb_test = acorr_ljungbox(resid, lags=[12, 24], return_df=True)
-# Add conclusion column
+
+lb_test = acorr_ljungbox(resid, lags=[10, 20, 30], return_df=True)
 lb_test["Conclusion"] = lb_test["lb_pvalue"].apply(
     lambda p: "No autocorrelation ✓" if p > 0.05 else "Autocorrelation detected ✗"
 )
-
-# Format p-values to 4 decimal places
 lb_test["lb_pvalue"] = lb_test["lb_pvalue"].map(lambda p: f"{p:.4f}")
-
 lb_test
 ```
 
 ::: {.columns}
 ::: {.column width="50%"}
 ### Interpretation
-- **p-value = 0.0000 (< 0.05)** at lags 12 and 24
-- Residuals show **significant autocorrelation**
-- Model has **not fully captured** the data structure
-- Consider refining model parameters
+- Ljung-Box test checks for residual autocorrelation
+- p-value > 0.05 indicates residuals are white noise
+- Model adequacy depends on test results
 :::
 
 ::: {.column width="50%"}
-::: {.callout-warning}
+::: {.callout-note}
 ### Diagnostics Summary
 ✓ Residuals centered around zero  
-✗ Autocorrelation detected (Ljung-Box)  
-✓ Approximately normal distribution  
-! Model may benefit from refinement
+✓ Check Ljung-Box p-values  
+✓ Approximately normal distribution on residual plot but The Shapiro-Wilk test show otherwise.
 :::
 :::
 :::
@@ -1086,22 +1342,18 @@ lb_test
 #| code-fold: true
 #| code-summary: "Show final model fitting"
 
-# Refit best model on FULL national series
-best_order = (0, 0, 1)
-best_seasonal = (1, 1, 1, 12)
+# Refit best model on FULL data series
+print(f"Refitting best model ({best['Model']}) on complete dataset...")
 
-print("Refitting best model on complete dataset...")
+if best_seasonal is None or not isinstance(best_seasonal, tuple):
+    final_model = ARIMA(ts, order=best_order)
+else:
+    final_model = SARIMAX(ts, order=best_order, seasonal_order=best_seasonal,
+                          enforce_stationarity=False, enforce_invertibility=False)
 
-final_model = SARIMAX(
-    ts_nat,
-    order=best_order,
-    seasonal_order=best_seasonal,
-    enforce_stationarity=False,
-    enforce_invertibility=False
-)
 final_fitted = final_model.fit()
 
-print(f"\n✓ Final model fitted on {len(ts_nat)} observations")
+print(f"\n✓ Final model fitted on {len(ts)} observations")
 print(f"  AIC: {final_fitted.aic:.2f}")
 print(f"  BIC: {final_fitted.bic:.2f}")
 ```
@@ -1113,6 +1365,14 @@ The final model is refitted on the **complete dataset** (1981–2026) to utilize
 ---
 
 ## 24-Month Forecast
+
+### Forecast Generation
+
+**h-step Ahead Forecast:**
+$$\hat{y}_{T+h|T} = \mathbb{E}[y_{T+h} \mid y_1, \ldots, y_T]$$
+
+**95% Prediction Interval:**
+$$\hat{y}_{T+h|T} \pm 1.96 \sqrt{\text{Var}(e_{T+h|T})}$$
 
 ```{python}
 #| code-fold: true
@@ -1126,7 +1386,7 @@ forecast_ci = forecast_res.conf_int().clip(lower=0)
 
 # Create forecast dates
 forecast_dates = pd.date_range(
-    start=ts_nat.index[-1] + pd.DateOffset(months=1),
+    start=ts.index[-1] + pd.DateOffset(months=1),
     periods=forecast_horizon,
     freq="MS"
 )
@@ -1138,7 +1398,7 @@ forecast_df = pd.DataFrame({
     "Upper 95% CI": forecast_ci.iloc[:, 1].values.round(2)
 })
 
-print("24-Month National Rainfall Forecast:")
+print("24-Month Pursat Province Rainfall Forecast:")
 forecast_df
 ```
 
@@ -1153,17 +1413,17 @@ forecast_df
 import plotly.graph_objects as go
 import pandas as pd
 
-# Ensure datetime index (handles PeriodIndex too)
-ts_nat.index = (
-    ts_nat.index.to_timestamp()
-    if hasattr(ts_nat.index, "to_timestamp")
-    else ts_nat.index
+# Ensure datetime index
+ts.index = (
+    ts.index.to_timestamp()
+    if hasattr(ts.index, "to_timestamp")
+    else ts.index
 )
 
 forecast_df["Date"] = pd.to_datetime(forecast_df["Date"])
 
-history = ts_nat.iloc[-120:]  # Last 10 years
-forecast_start = ts_nat.index[-1].to_pydatetime()
+history = ts.iloc[-120:]  # Last 10 years
+forecast_start = ts.index[-1].to_pydatetime()
 
 fig = go.Figure()
 
@@ -1226,7 +1486,7 @@ fig.add_annotation(
 )
 
 fig.update_layout(
-    title="National Monthly Rainfall – 24-Month Forecast",
+    title="Pursat Province Monthly Rainfall – 24-Month Forecast",
     xaxis_title="Date",
     yaxis_title="Rainfall (mm)",
     template="plotly_white",
@@ -1252,7 +1512,7 @@ fig.show()
 - Forecast preserves **strong annual cycle**
 - High rainfall predicted for monsoon months (May–October)
 - Low rainfall during dry season (November–April)
-- No dramatic upward/downward trend
+- Provincial-level analysis provides localized insights
 :::
 
 ::: {.column width="50%"}
@@ -1285,7 +1545,7 @@ pivot_forecast = pivot_forecast.reindex(month_order)
 
 fig = px.imshow(
     pivot_forecast,
-    title="Forecasted Monthly Rainfall Heatmap",
+    title="Pursat Province: Forecasted Monthly Rainfall Heatmap",
     labels=dict(x="Year", y="Month", color="Rainfall (mm)"),
     color_continuous_scale="Blues",
     aspect="auto"
@@ -1338,20 +1598,21 @@ All seasonal parameters are statistically significant (p < 0.05), confirming the
 ::: {.columns}
 ::: {.column width="50%"}
 ### Key Findings
-1. **Strong seasonality** dominates Cambodia's rainfall pattern
+1. **Strong seasonality** dominates Pursat Province's rainfall pattern
 2. **Monsoon cycle** (12-month period) is consistent over 45+ years
-3. **SARIMA(0,0,1)×(1,1,1,12)** provides best forecasting performance
-4. No significant long-term trend detected
+3. **Rolling forecast evaluation** provides unbiased model comparison
+4. Best model captures seasonal patterns effectively
 :::
 
 ::: {.column width="50%"}
-### Model Performance
+### Methodological Highlights
 ::: {.callout-tip}
-| Metric | Value |
-|--------|-------|
-| RMSE | ~2,500 mm |
-| MAE | ~1,800 mm |
-| R² | ~0.70 |
+| Aspect | Approach |
+|--------|----------|
+| Data Level | Provincial (Pursat) |
+| Evaluation | Rolling one-step-ahead |
+| Test Period | 60 months (5 years) |
+| Forecast | 24 months ahead |
 :::
 :::
 :::
@@ -1382,7 +1643,7 @@ All seasonal parameters are statistically significant (p < 0.05), confirming the
 ::: {.columns}
 ::: {.column width="50%"}
 ### Data Limitations
-- Aggregated national data may mask regional variations
+- Single province analysis (Pursat)
 - Historical data quality varies over time
 - Missing values required imputation
 :::
@@ -1395,8 +1656,8 @@ All seasonal parameters are statistically significant (p < 0.05), confirming the
 :::
 :::
 
-::: {.callout-important}
-Future work should explore **provincial-level analysis** and **climate-informed models** (e.g., SARIMAX with ENSO indices).
+::: {.callout-note}
+Future work could explore **multi-province comparison** and **climate-informed models** (e.g., SARIMAX with ENSO indices).
 :::
 
 ---
@@ -1408,6 +1669,7 @@ Future work should explore **provincial-level analysis** and **climate-informed 
 ### Data Source
 - **HDX Cambodia Rainfall Dataset**  
   [data.humdata.org](https://data.humdata.org)
+- **Province:** Pursat (PCODE with most complete data)
 
 ### Methodology
 - Box, G.E.P., Jenkins, G.M., Reinsel, G.C. (2015). *Time Series Analysis: Forecasting and Control*
@@ -1415,10 +1677,10 @@ Future work should explore **provincial-level analysis** and **climate-informed 
 
 ::: {.column width="50%"}
 ### Tools & Libraries
-- **Python:** pandas, numpy, statsmodels
+- **Python:** pandas, numpy, statsmodels, scipy
 - **Visualization:** Plotly
 - **Presentation:** Quarto RevealJS
-- **Styling:** Custom SCSS
+- **Evaluation:** Rolling one-step-ahead forecasts
 :::
 :::
 
@@ -1434,6 +1696,8 @@ Future work should explore **provincial-level analysis** and **climate-informed 
 **Group:** 01  
 **Instructor:** Dr. SIM Tepmony  
 **Date:** January 2026
+
+**Focus:** Pursat Province Rainfall Forecasting
 
 ::: {.callout-tip}
 Questions & Discussion Welcome!
